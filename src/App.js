@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { generatePackage, formatPackageDisplay } from './packageAlgorithm';
 
 // Initialize Supabase client - replace with your actual keys
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'YOUR_SUPABASE_URL';
@@ -11,6 +12,7 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [stats, setStats] = useState({ totalYards: 0, co2Saved: 0 });
+  const [userPackage, setUserPackage] = useState(null);
 
   useEffect(() => {
     fetchStats();
@@ -209,20 +211,22 @@ function App() {
       {/* Form Modal */}
       {showForm && (
         <FormModal 
-          onClose={() => setShowForm(false)} 
-          onSuccess={() => {
+        onClose={() => setShowForm(false)} 
+        onSuccess={(formData) => {  // Now receives formData
             setShowForm(false);
             setShowSuccess(true);
+            setUserPackage(generatePackage(formData)); // Generate package
             fetchStats();
-          }}
+        }}
         />
       )}
 
       {/* Success Modal */}
       {showSuccess && (
         <SuccessModal 
-          onClose={() => setShowSuccess(false)} 
-          stats={stats}
+        onClose={() => setShowSuccess(false)} 
+        stats={stats}
+        package={userPackage}  // Pass package
         />
       )}
     </div>
@@ -251,29 +255,29 @@ function FormModal({ onClose, onSuccess }) {
     }));
   };
 
-  const handleSubmit = async () => {
+    const handleSubmit = async () => {
     if (!formData.email || !formData.zip_code) {
-      alert('Please fill in all required fields');
-      return;
+        alert('Please fill in all required fields');
+        return;
     }
     
     setLoading(true);
 
     try {
-      const { error } = await supabase
+        const { error } = await supabase
         .from('waitlist')
         .insert([formData]);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      onSuccess();
+        onSuccess(formData); // Pass formData to parent
     } catch (error) {
-      console.error('Error submitting form:', error);
-      alert('Error submitting form. Please try again.');
+        console.error('Error submitting form:', error);
+        alert('Error submitting form. Please try again.');
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
-  };
+    };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -436,7 +440,9 @@ function FormModal({ onClose, onSuccess }) {
 }
 
 // Success Modal Component
-function SuccessModal({ onClose, stats }) {
+function SuccessModal({ onClose, stats, package: _package }) {
+  const packageItems = _package ? formatPackageDisplay(_package) : [];
+  
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal success-modal" onClick={(e) => e.stopPropagation()}>
@@ -452,17 +458,71 @@ function SuccessModal({ onClose, stats }) {
           {' '}{stats.co2Saved} tons of CO₂ annually.
         </p>
 
-        <div className="success-box">
-          <h3>What Happens Next:</h3>
-          <ul>
-            <li>✓ We'll email you when kits are ready (Spring 2026)</li>
-            <li>✓ You'll get exclusive early-bird pricing</li>
-            <li>✓ We'll send tips to prep your yard this winter</li>
+        {_package && (
+          <>
+            <div className="success-box">
+              <h3 style={{ marginBottom: '16px', color: '#10b981' }}>
+                Your Custom Native Yard Kit:
+              </h3>
+              <ul>
+                {packageItems.map((item, index) => (
+                  <li key={index} style={{ marginBottom: '12px' }}>
+                    <span style={{ marginRight: '8px' }}>{item.emoji}</span>
+                    <strong>{item.name}</strong>
+                    {item.detail && (
+                      <span style={{ color: '#9ca3af', display: 'block', marginLeft: '28px' }}>
+                        {item.detail}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              
+              <div style={{ 
+                marginTop: '24px', 
+                paddingTop: '24px', 
+                borderTop: '1px solid rgba(16, 185, 129, 0.3)' 
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span>Retail Value:</span>
+                  <span style={{ textDecoration: 'line-through', color: '#9ca3af' }}>
+                    ${_package.pricing.retail}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span>Your Discount:</span>
+                  <span style={{ color: '#10b981' }}>-${_package.pricing.discount}</span>
+                </div>
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  fontSize: '1.25rem', 
+                  fontWeight: 'bold' 
+                }}>
+                  <span>Kit Price:</span>
+                  <span style={{ color: '#10b981' }}>${_package.pricing.final}</span>
+                </div>
+              </div>
+            </div>
+
+            <p style={{ marginTop: '24px', fontSize: '0.875rem', color: '#9ca3af' }}>
+              This kit will transform {_package.summary.totalCoverage.toLocaleString()} sq ft 
+              and offset {_package.summary.co2Offset} tons of CO₂ per year.
+            </p>
+          </>
+        )}
+
+        <div style={{ marginTop: '32px' }}>
+          <h3>What's Next?</h3>
+          <ul style={{ textAlign: 'left', marginTop: '16px' }}>
+            <li>Check your email for your welcome guide</li>
+            <li>We'll notify you when kits are available in your area</li>
+            <li>Join our community for tips and support</li>
           </ul>
         </div>
 
-        <button onClick={onClose} className="btn btn-primary">
-          Got It!
+        <button onClick={onClose} className="btn btn-primary" style={{ marginTop: '24px' }}>
+          Got it!
         </button>
       </div>
     </div>

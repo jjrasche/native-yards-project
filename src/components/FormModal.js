@@ -1,64 +1,115 @@
-﻿// components/FormModal.js
-import React, { useState } from 'react';
+﻿// FormModal.js - Multi-step form component with Enter key support
+
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { generatePackage, formatPackageDisplay } from '../packageAlgorithm';
+import { FORM_CONFIG } from '../formConfig';
 
-const supabase = createClient(
-  process.env.REACT_APP_SUPABASE_URL,
-  process.env.REACT_APP_SUPABASE_ANON_KEY
-);
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const FormModal = ({ onClose, onSuccess, analytics }) => {
-  const { trackFormField, trackConversion, detectSegment, messagingVariant } = analytics;
-  
-  const [formData, setFormData] = useState({
-    email: '',
-    zip_code: '',
-    property_type: '',
-    yard_size: '',
-    time_commitment: '',
-    desires: [],
-    safety_concerns: false,
-    hoa_resident: false,
-    vibe: '',
-    budget: ''
-  });
+const emptyForm = () => ({ email: '', zip_code: '', yard_size: '', time_commitment: '', desires: [], vibe: '', budget: '' });
+const dummyForm = () => ({ email: 'jimjrasche@gmail.com', zip_code: '49525', yard_size: 3000, time_commitment: 'moderate', desires: ['edible', 'curb_appeal', 'low_maintenance'], vibe: '', budget: 'high' });
+
+
+function FormModal({ onClose, onSuccess }) {
+  const [currentStep, setCurrentStep] = useState(1);
+  const [formData, setFormData] = useState(dummyForm());
   const [loading, setLoading] = useState(false);
+  const [generatedPackage, setGeneratedPackage] = useState(null);
 
-  const handleFieldChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    trackFormField(field, value);
-  };
+  const totalSteps = FORM_CONFIG.steps.length;
+
+  // Handle Enter key press
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      // Don't trigger on Enter if target is a checkbox, select, or textarea
+      if (e.key === 'Enter' && !e.shiftKey && 
+          e.target.type !== 'checkbox' && 
+          e.target.tagName !== 'SELECT' && 
+          e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        if (currentStep < totalSteps) {
+          handleNext();
+        } else if (currentStep === totalSteps && !loading) {
+          handleSubmit();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyPress);
+    return () => document.removeEventListener('keydown', handleKeyPress);
+  }, [currentStep, formData, loading]);
 
   const handleDesireToggle = (desire) => {
-    const newDesires = formData.desires.includes(desire)
-      ? formData.desires.filter(d => d !== desire)
-      : [...formData.desires, desire];
-    
-    handleFieldChange('desires', newDesires);
+    setFormData(prev => ({
+      ...prev,
+      desires: prev.desires.includes(desire)
+        ? prev.desires.filter(d => d !== desire)
+        : [...prev.desires, desire]
+    }));
+  };
+
+  const validateStep = () => {
+    switch (currentStep) {
+      case 1:
+        if (!formData.email) {
+          alert('Please enter your email');
+          return false;
+        }
+        if (!/\S+@\S+\.\S+/.test(formData.email)) {
+          alert('Please enter a valid email address');
+          return false;
+        }
+        return true;
+      case 2:
+        if (!formData.zip_code) {
+          alert('Please enter your ZIP code');
+          return false;
+        }
+        if (!formData.yard_size) {
+          alert('Please select your yard size');
+          return false;
+        }
+        return true;
+      case 3:
+        return true; // Optional fields
+      case 4:
+        return true; // Optional fields
+      default:
+        return true;
+    }
+  };
+
+  const handleNext = () => {
+    if (!validateStep()) {
+      return;
+    }
+
+    // Generate package when moving to step 5
+    if (currentStep === 4) {
+      const pkg = generatePackage(formData);
+      setGeneratedPackage(pkg);
+    }
+
+    setCurrentStep(prev => prev + 1);
+  };
+
+  const handleBack = () => {
+    setCurrentStep(prev => prev - 1);
   };
 
   const handleSubmit = async () => {
-    if (!formData.email || !formData.zip_code) {
-      alert('Please fill in all required fields');
-      return;
-    }
-    
     setLoading(true);
 
     try {
-      // Track conversion with full context
-      await trackConversion(formData);
-      
-      // Save to database with segments and variant
       const { error } = await supabase
         .from('waitlist')
-        .insert([{
-          ...formData,
-          detected_segments: detectSegment(formData),
-          messaging_variant: messagingVariant
-        }]);
+        .insert([formData]);
 
       if (error) throw error;
+
       onSuccess(formData);
     } catch (error) {
       console.error('Error submitting form:', error);
@@ -68,201 +119,289 @@ const FormModal = ({ onClose, onSuccess, analytics }) => {
     }
   };
 
+  const renderStepContent = () => {
+    const stepConfig = FORM_CONFIG.steps[currentStep - 1];
+
+    switch (currentStep) {
+      case 1:
+        return (
+          <div className="step-content">
+            <h2>{stepConfig.title}</h2>
+            <p className="mb-8">{stepConfig.subtitle}</p>
+            
+            <div className="form-group">
+              <input
+                type="email"
+                required
+                value={formData.email}
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                className="form-input"
+                placeholder="you@example.com"
+                autoFocus
+              />
+            </div>
+          </div>
+        );
+
+      case 2:
+        return (
+          <div className="step-content">
+            <h2>{stepConfig.title}</h2>
+            <p className="mb-8">{stepConfig.subtitle}</p>
+            
+            <div className="form-group">
+              <label className="form-label">ZIP Code</label>
+              <input
+                type="text"
+                required
+                value={formData.zip_code}
+                onChange={(e) => setFormData({...formData, zip_code: e.target.value.replace(/\D/g, '').slice(0, 5)})}
+                className="form-input"
+                placeholder="12345"
+                autoFocus
+                maxLength="5"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">How big is your yard?</label>
+              <select
+                value={formData.yard_size}
+                onChange={(e) => setFormData({...formData, yard_size: e.target.value})}
+                className="form-select"
+              >
+                <option value="">Select size</option>
+                {FORM_CONFIG.yardSizes.map(size => (
+                  <option key={size.value} value={size.value}>
+                    {size.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        );
+
+      case 3:
+        return (
+          <div className="step-content">
+            <h2>{stepConfig.title}</h2>
+            <p className="mb-8">{stepConfig.subtitle}</p>
+            
+            <div className="checkbox-grid">
+              {FORM_CONFIG.desires.map(desire => (
+                <label key={desire.value} className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={formData.desires.includes(desire.value)}
+                    onChange={() => handleDesireToggle(desire.value)}
+                    className="checkbox-input"
+                  />
+                  <span>{desire.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="form-group mt-4">
+              <label className="form-label">How much time for yard work?</label>
+              <select
+                value={formData.time_commitment}
+                onChange={(e) => setFormData({...formData, time_commitment: e.target.value})}
+                className="form-select"
+              >
+                <option value="">Select commitment</option>
+                {FORM_CONFIG.timeCommitments.map(commitment => (
+                  <option key={commitment.value} value={commitment.value}>
+                    {commitment.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        );
+
+      case 4:
+        return (
+          <div className="step-content">
+            <h2>{stepConfig.title}</h2>
+            <p className="mb-8">{stepConfig.subtitle}</p>
+            
+            <div className="form-group">
+              <label className="form-label">What vibe appeals to you?</label>
+              <select
+                value={formData.vibe}
+                onChange={(e) => setFormData({...formData, vibe: e.target.value})}
+                className="form-select"
+              >
+                <option value="">Select style</option>
+                {FORM_CONFIG.styles.map(style => (
+                  <option key={style.value} value={style.value}>
+                    {style.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Initial investment budget</label>
+              <select
+                value={formData.budget}
+                onChange={(e) => setFormData({...formData, budget: e.target.value})}
+                className="form-select"
+              >
+                <option value="">Select budget</option>
+                {FORM_CONFIG.budgets.map(budget => (
+                  <option key={budget.value} value={budget.value}>
+                    {budget.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        );
+
+      case 5:
+        return (
+          <div className="step-content">
+            <h2>{stepConfig.title}</h2>
+            <p className="mb-8">{stepConfig.subtitle}</p>
+            
+            {generatedPackage && (
+              <div className="success-box">
+                <ul>
+                  {formatPackageDisplay(generatedPackage).map((item, index) => (
+                    <li key={index} style={{ marginBottom: '12px' }}>
+                      <span style={{ marginRight: '8px' }}>{item.emoji}</span>
+                      <strong>{item.name}</strong>
+                      {item.detail && (
+                        <span style={{ color: '#9ca3af', display: 'block', marginLeft: '28px' }}>
+                          {item.detail}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                
+                <div style={{ 
+                  marginTop: '24px', 
+                  paddingTop: '24px', 
+                  borderTop: '1px solid rgba(16, 185, 129, 0.3)' 
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span>Retail Value:</span>
+                    <span style={{ textDecoration: 'line-through', color: '#9ca3af' }}>
+                      ${generatedPackage.pricing.retail}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <span>Your Discount:</span>
+                    <span style={{ color: '#10b981' }}>-${generatedPackage.pricing.discount}</span>
+                  </div>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    fontSize: '1.25rem', 
+                    fontWeight: 'bold' 
+                  }}>
+                    <span>Kit Price:</span>
+                    <span style={{ color: '#10b981' }}>${generatedPackage.pricing.final}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <p style={{ marginTop: '24px', fontSize: '0.875rem', color: '#9ca3af' }}>
+              This kit will transform {generatedPackage?.summary.totalCoverage.toLocaleString()} sq ft 
+              and offset {generatedPackage?.summary.co2Offset} tons of CO₂ per year.
+            </p>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>×</button>
         
-        <h2>Join the Native Yards Movement</h2>
-        <p className="mb-8">Tell us about your yard and goals. This helps us create the perfect kit for you.</p>
-
-        {/* Required Fields */}
-        <div className="form-section">
-          <h3 className="form-section-title">Contact Info</h3>
-          
-          <div className="form-group">
-            <label className="form-label">Email *</label>
-            <input
-              type="email"
-              required
-              value={formData.email}
-              onChange={(e) => handleFieldChange('email', e.target.value)}
-              className="form-input"
-              placeholder="you@example.com"
-            />
+        {/* Progress indicator */}
+        <div style={{ marginBottom: '32px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
+              Step {currentStep} of {totalSteps}
+            </span>
+            <span style={{ fontSize: '0.875rem', color: '#9ca3af' }}>
+              {Math.round((currentStep / totalSteps) * 100)}% complete
+            </span>
           </div>
-
-          <div className="form-group">
-            <label className="form-label">ZIP Code *</label>
-            <input
-              type="text"
-              required
-              value={formData.zip_code}
-              onChange={(e) => handleFieldChange('zip_code', e.target.value)}
-              className="form-input"
-              placeholder="12345"
+          <div style={{ height: '4px', backgroundColor: '#374151', borderRadius: '2px' }}>
+            <div 
+              style={{ 
+                width: `${(currentStep / totalSteps) * 100}%`, 
+                height: '100%', 
+                backgroundColor: '#10b981', 
+                borderRadius: '2px',
+                transition: 'width 0.3s ease'
+              }} 
             />
           </div>
         </div>
 
-        {/* Property Details - For Segment Detection */}
-        <div className="form-section">
-          <h3 className="form-section-title">Your Property</h3>
+        {renderStepContent()}
+
+        {/* Navigation buttons */}
+        <div style={{ 
+          display: 'flex', 
+          gap: '12px', 
+          marginTop: '32px' 
+        }}>
+          {currentStep > 1 && (
+            <button
+              onClick={handleBack}
+              className="btn"
+              style={{ 
+                flex: '1', 
+                backgroundColor: '#374151',
+                color: '#fff'
+              }}
+            >
+              Back
+            </button>
+          )}
           
-          <div className="form-group">
-            <label className="form-label">Property Type</label>
-            <select
-              value={formData.property_type}
-              onChange={(e) => handleFieldChange('property_type', e.target.value)}
-              className="form-select"
+          {currentStep < totalSteps ? (
+            <button
+              onClick={handleNext}
+              className="btn btn-primary"
+              style={{ flex: '2' }}
             >
-              <option value="">Select type</option>
-              <option value="single_family">Single Family Home</option>
-              <option value="rental">Rental Property</option>
-              <option value="multiple">Multiple Properties</option>
-              <option value="commercial">Commercial Property</option>
-              <option value="senior_living">Senior Living</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Yard Size</label>
-            <select
-              value={formData.yard_size}
-              onChange={(e) => handleFieldChange('yard_size', e.target.value)}
-              className="form-select"
+              Continue
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="btn btn-primary"
+              style={{ flex: '2', opacity: loading ? 0.5 : 1 }}
             >
-              <option value="">Select size</option>
-              <option value="tiny">Tiny (&lt; 1,000 sq ft)</option>
-              <option value="small">Small (1,000 - 5,000 sq ft)</option>
-              <option value="medium">Medium (5,000 - 10,000 sq ft)</option>
-              <option value="large">Large (10,000 - 20,000 sq ft)</option>
-              <option value="xlarge">Extra Large (20,000+ sq ft)</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">How much time do you want to spend on yard work?</label>
-            <select
-              value={formData.time_commitment}
-              onChange={(e) => handleFieldChange('time_commitment', e.target.value)}
-              className="form-select"
-            >
-              <option value="">Select time commitment</option>
-              <option value="none">None - I want it to maintain itself</option>
-              <option value="minimal">Minimal - A few hours per season</option>
-              <option value="moderate">Moderate - A few hours per month</option>
-              <option value="active">Active - I enjoy gardening</option>
-            </select>
-          </div>
+              {loading ? 'Confirming...' : 'Confirm Package'}
+            </button>
+          )}
         </div>
 
-        {/* Goals */}
-        <div className="form-section">
-          <h3 className="form-section-title">What matters most to you?</h3>
-          <p className="form-helper">Check all that apply</p>
-          
-          <div className="checkbox-grid">
-            {[
-              'Save time on maintenance',
-              'Reduce water bills',
-              'Safer yard (no mowing)',
-              'Reduce maintenance calls',
-              'Increase property value',
-              'HOA compliance',
-              'Curb appeal',
-              'Save money',
-              'Wildlife habitat',
-              'Low maintenance beauty'
-            ].map(desire => (
-              <label key={desire} className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={formData.desires.includes(desire)}
-                  onChange={() => handleDesireToggle(desire)}
-                  className="checkbox-input"
-                />
-                <span>{desire}</span>
-              </label>
-            ))}
-          </div>
-
-          {/* Special checkboxes for segment detection */}
-          <div style={{ marginTop: '24px' }}>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={formData.safety_concerns}
-                onChange={(e) => handleFieldChange('safety_concerns', e.target.checked)}
-                className="checkbox-input"
-              />
-              <span>I'm concerned about lawn mowing safety</span>
-            </label>
-
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={formData.hoa_resident}
-                onChange={(e) => handleFieldChange('hoa_resident', e.target.checked)}
-                className="checkbox-input"
-              />
-              <span>I live in an HOA community</span>
-            </label>
-          </div>
-        </div>
-
-        {/* Style & Budget */}
-        <div className="form-section">
-          <h3 className="form-section-title">Style & Investment</h3>
-          
-          <div className="form-group">
-            <label className="form-label">What look are you going for?</label>
-            <select
-              value={formData.vibe}
-              onChange={(e) => handleFieldChange('vibe', e.target.value)}
-              className="form-select"
-            >
-              <option value="">Select style</option>
-              <option value="manicured">Clean & Manicured</option>
-              <option value="cottage">Cottage Garden</option>
-              <option value="modern">Modern & Structured</option>
-              <option value="meadow">Natural Meadow</option>
-              <option value="mixed">Mix of Everything</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Initial investment comfort level</label>
-            <select
-              value={formData.budget}
-              onChange={(e) => handleFieldChange('budget', e.target.value)}
-              className="form-select"
-            >
-              <option value="">Select budget</option>
-              <option value="low">Under $200</option>
-              <option value="medium">$200 - $500</option>
-              <option value="high">$500 - $1,000</option>
-              <option value="premium">$1,000+</option>
-              <option value="unsure">Not sure yet</option>
-            </select>
-          </div>
-        </div>
-
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="btn btn-primary"
-          style={{ width: '100%', opacity: loading ? 0.5 : 1 }}
-        >
-          {loading ? 'Submitting...' : 'Join Waitlist'}
-        </button>
-
-        <p className="text-center mt-4" style={{ fontSize: '14px', color: '#9ca3af' }}>
-          We'll create a custom native yard kit based on your specific needs and location.
+        <p style={{ 
+          textAlign: 'center', 
+          marginTop: '16px', 
+          fontSize: '0.875rem', 
+          color: '#6b7280' 
+        }}>
+          Press Enter to continue
         </p>
       </div>
     </div>
   );
-};
+}
 
 export default FormModal;

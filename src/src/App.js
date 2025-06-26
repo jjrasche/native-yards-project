@@ -4,14 +4,14 @@ import { createClient } from '@supabase/supabase-js';
 import { useAnalytics } from './useAnalytics';
 
 // Import components
-import HeroSection from './components/HeroSection';
-import BenefitsSection from './components/BenefitsSection';
-import HowItWorksSection from './components/HowItWorksSection';
-import SafetySection from './components/SafetySection';
-import FAQSection from './components/FAQSection';
-import FinalCTASection from './components/FinalCTASection';
-import FormModal from './components/FormModal';
-import SuccessModal from './components/SuccessModal';
+import HeroSection from '../components/HeroSection';
+import BenefitsSection from '../components/BenefitsSection';
+import HowItWorksSection from '../components/HowItWorksSection';
+import SafetySection from '../components/SafetySection';
+import FAQSection from '../components/FAQSection';
+import FinalCTASection from '../components/FinalCTASection';
+import FormModal from '../components/FormModal';
+import SuccessModal from '../components/SuccessModal';
 
 // Import utilities
 import { generatePackage } from './packageAlgorithm';
